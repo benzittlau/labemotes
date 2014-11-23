@@ -2,6 +2,7 @@
 #   Will add or remove labels on a github pull request based on text in a comment
 #
 # Dependencies:
+#   "q": "*"
 #   "githubot": "0.4.x"
 #
 # Configuration:
@@ -13,6 +14,9 @@
 #
 # Author:
 #   benzittlau
+#
+
+Q = require "q"
 
 module.exports = (robot) ->
   github = require("githubot")(robot)
@@ -41,23 +45,67 @@ module.exports = (robot) ->
   robot.router.post '/github_webhook', (req, res) ->
     event = req.get('X-Github-Event')
     console.log "Receieved GitHub Event: #{event}"
+
     if event == "issue_comment"
       comment_text = req.body.comment.body
-      issues_url = req.body.issue.labels_url.replace("{/name}", "")
-      console.log(issues_url)
-      github_get_label_names issues_url
+      issue_labels_url = req.body.issue.labels_url.replace("{/name}", "")
+      repo_labels_url = req.body.repository.labels_url.replace("{/name}", "")
+
+      filters = [
+        {regex: /approved/i, add_labels: ['approved'], remove_labels: ['changes_required']},
+        {regex: /changes required/i, add_labels: ['changes_required'], remove_labels: ['approved']}
+      ]
+
+      applicable_filters = filters.filter (filter) -> filter.regex.test(comment_text)
+
+      Q.all([
+        get_labels(issue_labels_url),
+        get_labels(repo_labels_url),
+        issue_labels_url,
+        applicable_filters[0]
+      ]).spread(update_issue_labels)
+
       res.send 'PONG'
     else
-      res.sendStatus(501)
+      res.send(501)
 
-  github_get_label_names = (url) ->
+  get_labels = (url) ->
+    deferred = Q.defer()
     github = require('githubot')(robot)
-    label_names = []
+
     github.get url, (labels) ->
-      label_names = labels.map (label) ->
-        label.name
-    console.log(label_names)
-  
+      deferred.resolve(labels)
+
+    return deferred.promise
+
+  set_labels = (url, labels) ->
+    deferred = Q.defer()
+    github = require('githubot')(robot)
+
+    label_data = labels.map (label) -> label.name
+    console.log("Applying labels to pull request #{JSON.stringify(label_data)}.")
+
+    github.put url, label_data, (result) ->
+      deferred.resolve(result)
+
+    return deferred.promise
+
+
+  update_issue_labels = (current_labels, repo_labels, label_url, filter) ->
+    remove_labels = filter.remove_labels
+    add_labels = filter.add_labels
+    current_labels_to_keep = current_labels.filter (label) ->
+      label.name not in remove_labels
+
+    repo_labels_to_add = repo_labels.filter (label) ->
+      label.name in add_labels
+
+    labels_to_set = current_labels_to_keep.concat repo_labels_to_add
+
+    set_labels(label_url, labels_to_set)
+
+
+
 
   # robot.hear /badger/i, (msg) ->
   #   msg.send "Badgers? BADGERS? WE DON'T NEED NO STINKIN BADGERS"
