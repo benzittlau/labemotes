@@ -38,6 +38,26 @@ module.exports = (robot) ->
   robot.router.post '/web_ping', (req, res) ->
     res.send 'PONG'
 
+  robot.router.post '/github_webhook', (req, res) ->
+    event = req.get('X-Github-Event')
+    console.log "Receieved GitHub Event: #{event}"
+    if event == "issue_comment"
+      comment_text = req.body.comment.body
+      issues_url = req.body.issue.labels_url.replace("{/name}", "")
+      console.log(issues_url)
+      github_get_label_names issues_url
+      res.send 'PONG'
+    else
+      res.sendStatus(501)
+
+  github_get_label_names = (url) ->
+    github = require('githubot')(robot)
+    label_names = []
+    github.get url, (labels) ->
+      label_names = labels.map (label) ->
+        label.name
+    console.log(label_names)
+  
 
   # robot.hear /badger/i, (msg) ->
   #   msg.send "Badgers? BADGERS? WE DON'T NEED NO STINKIN BADGERS"
