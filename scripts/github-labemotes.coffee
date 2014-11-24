@@ -4,6 +4,7 @@
 # Dependencies:
 #   "q": "*"
 #   "githubot": "0.4.x"
+#   "cli-table": "*"
 #
 # Configuration:
 #   HUBOT_GITHUB_TOKEN
@@ -20,6 +21,30 @@ Q = require "q"
 
 module.exports = (robot) ->
   github = require("githubot")(robot)
+
+  robot.respond /labemotes.*rules/i, (msg) ->
+    msg.send get_rule_table()
+
+  robot.respond /reset.*labemotes.*rules/i, (msg) ->
+    reset_rules()
+    msg.send get_rule_table()
+
+  robot.respond /(add|create) labemotes rule/i, (msg) ->
+    rules = get_rules()
+    rules.push {matches: [], add_labels: [], remove_labels: []}
+    set_rules(rules)
+    msg.send get_rule_table()
+
+  robot.respond /set (.*) on rule (.*) with (.*)/i, (msg) ->
+    argument = msg.match[1]
+    rule_id = msg.match[2]
+    values = msg.match[3].split(',')
+    rules = get_rules()
+    rules[rule_id][argument] = values
+    set_rules(rules)
+
+    msg.send get_rule_table()
+
   robot.respond /sanity check$/i, (msg) ->
     repo = "labemotes"
     base_url = process.env.HUBOT_GITHUB_API || 'https://api.github.com'
@@ -51,23 +76,57 @@ module.exports = (robot) ->
       issue_labels_url = req.body.issue.labels_url.replace("{/name}", "")
       repo_labels_url = req.body.repository.labels_url.replace("{/name}", "")
 
-      filters = [
-        {regex: /approved/i, add_labels: ['approved'], remove_labels: ['changes_required']},
-        {regex: /changes required/i, add_labels: ['changes_required'], remove_labels: ['approved']}
-      ]
+      rules = get_rules()
 
-      applicable_filters = filters.filter (filter) -> filter.regex.test(comment_text)
+      applicable_rules = rules.filter (rule) ->
+        escaped_matches = rule.matches.map (match) -> match.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        regex = new RegExp(escaped_matches.join('|'), 'i')
+
+        regex.test(comment_text)
 
       Q.all([
         get_labels(issue_labels_url),
         get_labels(repo_labels_url),
         issue_labels_url,
-        applicable_filters[0]
+        applicable_rules[0]
       ]).spread(update_issue_labels)
 
       res.send 'PONG'
     else
       res.send(501)
+
+
+  reset_rules = ->
+    rules = [
+      {
+        matches: ['approved', ':+1:']
+        add_labels: ['APPROVED'],
+        remove_labels: ['COMMENTS', 'NEEDS_DISCUSSION']},
+      {
+        matches: ['changes required', ':notebook:']
+        add_labels: ['COMMENTS'],
+        remove_labels: ['APPROVED']
+      }
+    ]
+    set_rules(rules)
+
+    return rules
+
+  get_rule_table = ->
+    Table = require('cli-table')
+    table = new Table({head: ['id', 'matches', 'add_labels', 'remove_labels']})
+    rules = get_rules()
+    i = 0
+    for rule in rules
+      table.push([i++, rule.matches.join("\n"), rule.add_labels.join("\n"), rule.remove_labels.join("\n")])
+    return "\n" + table.toString()
+
+  get_rules = ->
+    raw_rules = robot.brain.get('rules')
+    return if raw_rules? then JSON.parse(raw_rules) else reset_rules()
+
+  set_rules = (rules) ->
+    return robot.brain.set('rules', JSON.stringify(rules))
 
   get_labels = (url) ->
     deferred = Q.defer()
@@ -91,9 +150,9 @@ module.exports = (robot) ->
     return deferred.promise
 
 
-  update_issue_labels = (current_labels, repo_labels, label_url, filter) ->
-    remove_labels = filter.remove_labels
-    add_labels = filter.add_labels
+  update_issue_labels = (current_labels, repo_labels, label_url, rule) ->
+    remove_labels = rule.remove_labels
+    add_labels = rule.add_labels
     current_labels_to_keep = current_labels.filter (label) ->
       label.name not in remove_labels
 
