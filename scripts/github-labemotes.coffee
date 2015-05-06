@@ -11,7 +11,10 @@
 #   HUBOT_GITHUB_USER
 #
 # Commands:
-#
+#   hubot labemotes rules - Will output a table of the current labemotes rules
+#   hubot reset labemotes rules - Will reset the labemotes rules back to default
+#   hubot add labemotes rule - Will create a new blank labemote rule
+#   hubot set <attribute> on labemote rule <rule_id> with <csv of value> - Updates a labemote rule attributge
 #
 # Author:
 #   benzittlau
@@ -35,7 +38,7 @@ module.exports = (robot) ->
     set_rules(rules)
     msg.send get_rule_table()
 
-  robot.respond /set (.*) on rule (.*) with (.*)/i, (msg) ->
+  robot.respond /set (.*) on labemote rule (.*) with (.*)/i, (msg) ->
     argument = msg.match[1]
     rule_id = msg.match[2]
     values = msg.match[3].split(',')
@@ -44,28 +47,6 @@ module.exports = (robot) ->
     set_rules(rules)
 
     msg.send get_rule_table()
-
-  robot.respond /sanity check$/i, (msg) ->
-    repo = "labemotes"
-    base_url = process.env.HUBOT_GITHUB_API || 'https://api.github.com'
-    url = "#{base_url}/repos/#{repo}/commits"
-
-    github.get url, (commits) ->
-      if commits.message
-        msg.send "Achievement unlocked: [NEEDLE IN A HAYSTACK] repository #{commits.message}!"
-      else if commits.length == 0
-          msg.send "Achievement unlocked: [LIKE A BOSS] no commits found!"
-      else
-        msg.send "https://github.com/#{repo}"
-        send = 5
-        for c in commits
-          if send
-            d = new Date(Date.parse(c.commit.committer.date))
-            msg.send "[#{d} -> #{c.commit.committer.name}] #{c.commit.message}"
-            send -= 1
-
-  robot.router.post '/web_ping', (req, res) ->
-    res.send 'PONG'
 
   robot.router.post '/github_webhook', (req, res) ->
     event = req.get('X-Github-Event')
@@ -78,18 +59,20 @@ module.exports = (robot) ->
 
       rules = get_rules()
 
-      applicable_rules = rules.filter (rule) ->
-        escaped_matches = rule.matches.map (match) -> match.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-        regex = new RegExp(escaped_matches.join('|'), 'i')
+      escape_regex = new RegExp(':no_entry:', 'i')
+      if !escape_regex.test(comment_text)
+        applicable_rules = rules.filter (rule) ->
+          escaped_matches = rule.matches.map (match) -> match.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+          regex = new RegExp(escaped_matches.join('|'), 'i')
 
-        regex.test(comment_text)
+          regex.test(comment_text)
 
-      Q.all([
-        get_labels(issue_labels_url),
-        get_labels(repo_labels_url),
-        issue_labels_url,
-        applicable_rules[0]
-      ]).spread(update_issue_labels)
+        Q.all([
+          get_labels(issue_labels_url),
+          get_labels(repo_labels_url),
+          issue_labels_url,
+          applicable_rules[0]
+        ]).spread(update_issue_labels)
 
       res.send 'PONG'
     else
@@ -119,7 +102,7 @@ module.exports = (robot) ->
     i = 0
     for rule in rules
       table.push([i++, rule.matches.join("\n"), rule.add_labels.join("\n"), rule.remove_labels.join("\n")])
-    return "\n" + table.toString()
+    return "``` " + table.toString() + " ```"
 
   get_rules = ->
     raw_rules = robot.brain.get('rules')
@@ -162,101 +145,3 @@ module.exports = (robot) ->
     labels_to_set = current_labels_to_keep.concat repo_labels_to_add
 
     set_labels(label_url, labels_to_set)
-
-
-
-
-  # robot.hear /badger/i, (msg) ->
-  #   msg.send "Badgers? BADGERS? WE DON'T NEED NO STINKIN BADGERS"
-  #
-  # robot.respond /open the (.*) doors/i, (msg) ->
-  #   doorType = msg.match[1]
-  #   if doorType is "pod bay"
-  #     msg.reply "I'm afraid I can't let you do that."
-  #   else
-  #     msg.reply "Opening #{doorType} doors"
-  #
-  # robot.hear /I like pie/i, (msg) ->
-  #   msg.emote "makes a freshly baked pie"
-  #
-  # lulz = ['lol', 'rofl', 'lmao']
-  #
-  # robot.respond /lulz/i, (msg) ->
-  #   msg.send msg.random lulz
-  #
-  # robot.topic (msg) ->
-  #   msg.send "#{msg.message.text}? That's a Paddlin'"
-  #
-  #
-  # enterReplies = ['Hi', 'Target Acquired', 'Firing', 'Hello friend.', 'Gotcha', 'I see you']
-  # leaveReplies = ['Are you still there?', 'Target lost', 'Searching']
-  #
-  # robot.enter (msg) ->
-  #   msg.send msg.random enterReplies
-  # robot.leave (msg) ->
-  #   msg.send msg.random leaveReplies
-  #
-  # answer = process.env.HUBOT_ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING
-  #
-  # robot.respond /what is the answer to the ultimate question of life/, (msg) ->
-  #   unless answer?
-  #     msg.send "Missing HUBOT_ANSWER_TO_THE_ULTIMATE_QUESTION_OF_LIFE_THE_UNIVERSE_AND_EVERYTHING in environment: please set and try again"
-  #     return
-  #   msg.send "#{answer}, but what is the question?"
-  #
-  # robot.respond /you are a little slow/, (msg) ->
-  #   setTimeout () ->
-  #     msg.send "Who you calling 'slow'?"
-  #   , 60 * 1000
-  #
-  # annoyIntervalId = null
-  #
-  # robot.respond /annoy me/, (msg) ->
-  #   if annoyIntervalId
-  #     msg.send "AAAAAAAAAAAEEEEEEEEEEEEEEEEEEEEEEEEIIIIIIIIHHHHHHHHHH"
-  #     return
-  #
-  #   msg.send "Hey, want to hear the most annoying sound in the world?"
-  #   annoyIntervalId = setInterval () ->
-  #     msg.send "AAAAAAAAAAAEEEEEEEEEEEEEEEEEEEEEEEEIIIIIIIIHHHHHHHHHH"
-  #   , 1000
-  #
-  # robot.respond /unannoy me/, (msg) ->
-  #   if annoyIntervalId
-  #     msg.send "GUYS, GUYS, GUYS!"
-  #     clearInterval(annoyIntervalId)
-  #     annoyIntervalId = null
-  #   else
-  #     msg.send "Not annoying you right now, am I?"
-  #
-  #
-  # robot.router.post '/hubot/chatsecrets/:room', (req, res) ->
-  #   room   = req.params.room
-  #   data   = JSON.parse req.body.payload
-  #   secret = data.secret
-  #
-  #   robot.messageRoom room, "I have a secret: #{secret}"
-  #
-  #   res.send 'OK'
-  #
-  # robot.error (err, msg) ->
-  #   robot.logger.error "DOES NOT COMPUTE"
-  #
-  #   if msg?
-  #     msg.reply "DOES NOT COMPUTE"
-  #
-  # robot.respond /have a soda/i, (msg) ->
-  #   # Get number of sodas had (coerced to a number).
-  #   sodasHad = robot.brain.get('totalSodas') * 1 or 0
-  #
-  #   if sodasHad > 4
-  #     msg.reply "I'm too fizzy.."
-  #
-  #   else
-  #     msg.reply 'Sure!'
-  #
-  #     robot.brain.set 'totalSodas', sodasHad+1
-  #
-  # robot.respond /sleep it off/i, (msg) ->
-  #   robot.brain.set 'totalSodas', 0
-  #   robot.respond 'zzzzz'
