@@ -18,6 +18,7 @@
 #
 # Author:
 #   benzittlau
+#   barackobama
 #
 
 Q = require "q"
